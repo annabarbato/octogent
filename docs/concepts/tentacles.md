@@ -75,6 +75,12 @@ A worker attached to a tentacle can:
 - use the todo list as a work queue
 - hand work to child agents without rebuilding context from scratch
 
+## Default prompt template
+
+A tentacle can declare a `defaultPromptTemplate` at creation time. When a terminal is spawned on that tentacle without an explicit `promptTemplate`, the runtime resolves the tentacle's default template with the same auto-injected variables (`terminalId`, `apiPort`, `userPromptsDir`, `existingTerminals`, `tentacleName`, `tentacleId`, `tentacleContextPath`) and sends it as the initial prompt.
+
+If the named template does not exist, the runtime silently falls back to the default `tentacle-context-init` input draft. Tentacles without the field behave as before.
+
 ## Tentacles and worktrees
 
 Tentacles are not the same thing as worktrees.

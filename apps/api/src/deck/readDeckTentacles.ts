@@ -21,6 +21,7 @@ import {
   parseSuggestedSkillsFromContext,
   readAvailableClaudeSkills,
 } from "../claudeSkills";
+import { VALID_PROMPT_NAME } from "../prompts";
 import { markTentaclesInitialized } from "../setupState";
 
 const TENTACLES_DIR = ".octogent/tentacles";
@@ -35,6 +36,7 @@ type DeckTentacleState = {
   status: DeckTentacleStatus;
   octopus: DeckOctopusAppearance;
   scope: { paths: string[]; tags: string[] };
+  defaultPromptTemplate: string | null;
 };
 
 type DeckStateDocument = {
@@ -72,6 +74,7 @@ const parseTentacleState = (raw: unknown): DeckTentacleState => {
     status: "idle",
     octopus: { animation: null, expression: null, accessory: null, hairColor: null },
     scope: { paths: [], tags: [] },
+    defaultPromptTemplate: null,
   };
 
   if (raw === null || typeof raw !== "object") return defaults;
@@ -109,7 +112,15 @@ const parseTentacleState = (raw: unknown): DeckTentacleState => {
     }
   }
 
-  return { color, status, octopus, scope };
+  // Reject stored values that no longer match VALID_PROMPT_NAME so a corrupted
+  // deck.json can't steer terminal startup into an unexpected template.
+  const defaultPromptTemplate =
+    typeof rec.defaultPromptTemplate === "string" &&
+    VALID_PROMPT_NAME.test(rec.defaultPromptTemplate)
+      ? rec.defaultPromptTemplate
+      : null;
+
+  return { color, status, octopus, scope, defaultPromptTemplate };
 };
 
 // ─── Parse CONTEXT.md for title and description ───────────────────────────────
@@ -253,6 +264,7 @@ export const readDeckTentacles = (
       todoDone,
       todoItems,
       suggestedSkills: agentInfo.suggestedSkills,
+      defaultPromptTemplate: state.defaultPromptTemplate,
     });
   }
 
@@ -471,6 +483,7 @@ type CreateDeckTentacleInput = {
   color: string;
   octopus: DeckOctopusAppearance;
   suggestedSkills?: string[];
+  defaultPromptTemplate?: string;
 };
 
 type CreateDeckTentacleResult =
@@ -496,6 +509,17 @@ export const createDeckTentacle = (
     return { ok: false, error: "A tentacle with this name already exists" };
   }
 
+  let defaultPromptTemplate: string | null = null;
+  if (input.defaultPromptTemplate !== undefined) {
+    const trimmed = input.defaultPromptTemplate.trim();
+    if (trimmed.length > 0) {
+      if (!VALID_PROMPT_NAME.test(trimmed)) {
+        return { ok: false, error: "defaultPromptTemplate contains invalid characters" };
+      }
+      defaultPromptTemplate = trimmed;
+    }
+  }
+
   // Create the tentacle folder with agent-facing files
   mkdirSync(tentacleDir, { recursive: true });
 
@@ -515,6 +539,7 @@ export const createDeckTentacle = (
     status: "idle",
     octopus: input.octopus,
     scope: { paths: [], tags: [] },
+    defaultPromptTemplate,
   };
   writeDeckState(stateDir, deckState);
   markTentaclesInitialized(stateDir);
@@ -534,6 +559,7 @@ export const createDeckTentacle = (
       todoDone: 0,
       todoItems: [],
       suggestedSkills,
+      defaultPromptTemplate,
     },
   };
 };

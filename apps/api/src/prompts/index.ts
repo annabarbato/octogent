@@ -7,4 +7,5 @@ export {
   readPromptFromDirs,
   writeUserPrompt,
   deleteUserPrompt,
+  VALID_PROMPT_NAME,
 } from "./promptResolver";

@@ -111,7 +111,7 @@ export const readPromptFromDirs = async (
   return undefined;
 };
 
-const VALID_PROMPT_NAME = /^[\w][\w.-]*$/;
+export const VALID_PROMPT_NAME = /^[\w][\w.-]*$/;
 
 /**
  * Write a user prompt to the user prompts directory.

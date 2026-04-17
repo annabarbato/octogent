@@ -107,11 +107,18 @@ export const handleDeckTentaclesRoute: ApiRouteHandler = async (
       hairColor: typeof rawOctopus.hairColor === "string" ? rawOctopus.hairColor : null,
     };
 
-    const result = createDeckTentacle(
-      workspaceCwd,
-      { name, description, color, octopus, suggestedSkills },
-      projectStateDir,
-    );
+    const createInput: Parameters<typeof createDeckTentacle>[1] = {
+      name,
+      description,
+      color,
+      octopus,
+      suggestedSkills,
+    };
+    if (body && typeof body.defaultPromptTemplate === "string") {
+      createInput.defaultPromptTemplate = body.defaultPromptTemplate;
+    }
+
+    const result = createDeckTentacle(workspaceCwd, createInput, projectStateDir);
     if (!result.ok) {
       writeJson(response, 400, { error: result.error }, corsOrigin);
       return true;

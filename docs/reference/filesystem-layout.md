@@ -43,7 +43,7 @@ Per-project runtime state is stored under:
 Notable files:
 
 - `tentacles.json`
-- `deck.json`
+- `deck.json` — per-tentacle app metadata including `color`, `status`, `octopus`, `scope`, and an optional `defaultPromptTemplate` naming the prompt template to use when terminals spawn on the tentacle without an explicit one
 - `transcripts/<sessionId>.jsonl`
 - `monitor-config.json`
 - `monitor-cache.json`

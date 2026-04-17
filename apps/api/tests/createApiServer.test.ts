@@ -2000,6 +2000,239 @@ describe("createApiServer", () => {
     );
   });
 
+  it("persists defaultPromptTemplate on tentacle creation and returns it in GET", async () => {
+    const workspaceCwd = mkdtempSync(join(tmpdir(), "octogent-api-test-"));
+    temporaryDirectories.push(workspaceCwd);
+    const baseUrl = await startServer({ workspaceCwd });
+
+    const createResponse = await fetch(`${baseUrl}/api/deck/tentacles`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "engine",
+        description: "VLM engine work",
+        color: "#d4a017",
+        octopus: {},
+        defaultPromptTemplate: "presnap-iq-worker",
+      }),
+    });
+    expect(createResponse.status).toBe(201);
+    await expect(createResponse.json()).resolves.toEqual(
+      expect.objectContaining({
+        tentacleId: "engine",
+        defaultPromptTemplate: "presnap-iq-worker",
+      }),
+    );
+
+    const deckState = JSON.parse(
+      readFileSync(join(workspaceCwd, ".octogent", "state", "deck.json"), "utf8"),
+    );
+    expect(deckState.tentacles.engine.defaultPromptTemplate).toBe("presnap-iq-worker");
+
+    const listResponse = await fetch(`${baseUrl}/api/deck/tentacles`, {
+      headers: { Accept: "application/json" },
+    });
+    await expect(listResponse.json()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tentacleId: "engine",
+          defaultPromptTemplate: "presnap-iq-worker",
+        }),
+      ]),
+    );
+  });
+
+  it("rejects defaultPromptTemplate with invalid characters", async () => {
+    const workspaceCwd = mkdtempSync(join(tmpdir(), "octogent-api-test-"));
+    temporaryDirectories.push(workspaceCwd);
+    const baseUrl = await startServer({ workspaceCwd });
+
+    const createResponse = await fetch(`${baseUrl}/api/deck/tentacles`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "engine",
+        description: "VLM engine work",
+        color: "#d4a017",
+        octopus: {},
+        defaultPromptTemplate: "../evil",
+      }),
+    });
+    expect(createResponse.status).toBe(400);
+    await expect(createResponse.json()).resolves.toEqual(
+      expect.objectContaining({ error: expect.stringContaining("defaultPromptTemplate") }),
+    );
+  });
+
+  it("uses the tentacle's defaultPromptTemplate for terminals that omit promptTemplate", async () => {
+    const workspaceCwd = mkdtempSync(join(tmpdir(), "octogent-api-test-"));
+    temporaryDirectories.push(workspaceCwd);
+    const promptsDir = mkdtempSync(join(tmpdir(), "octogent-api-prompts-"));
+    temporaryDirectories.push(promptsDir);
+    writeFileSync(
+      join(promptsDir, "tentacle-context-init.md"),
+      "You are working on the {{tentacleName}} section. For tool-list items, context, and docs, check {{tentacleContextPath}}.",
+      "utf8",
+    );
+    writeFileSync(
+      join(promptsDir, "presnap-iq-worker.md"),
+      "PRESNAP WORKER for {{tentacleName}} ({{tentacleId}}) at {{tentacleContextPath}}. terminalId={{terminalId}}",
+      "utf8",
+    );
+
+    const baseUrl = await startServer({ workspaceCwd, promptsDir });
+
+    const createDeckResponse = await fetch(`${baseUrl}/api/deck/tentacles`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "engine",
+        description: "VLM engine work",
+        color: "#d4a017",
+        octopus: {},
+        defaultPromptTemplate: "presnap-iq-worker",
+      }),
+    });
+    expect(createDeckResponse.status).toBe(201);
+
+    const createResponse = await fetch(`${baseUrl}/api/terminals`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "engine-worker",
+        tentacleId: "engine",
+        workspaceMode: "shared",
+      }),
+    });
+    expect(createResponse.status).toBe(201);
+    const createPayload = (await createResponse.json()) as { initialPrompt?: string };
+    expect(createPayload.initialPrompt).toBe(
+      "PRESNAP WORKER for engine (engine) at .octogent/tentacles/engine. terminalId=engine-worker",
+    );
+
+    const snapshotsResponse = await fetch(`${baseUrl}/api/terminal-snapshots`, {
+      headers: { Accept: "application/json" },
+    });
+    await expect(snapshotsResponse.json()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ terminalId: "terminal-1", hasUserPrompt: true }),
+      ]),
+    );
+  });
+
+  it("lets explicit promptTemplate override the tentacle defaultPromptTemplate", async () => {
+    const workspaceCwd = mkdtempSync(join(tmpdir(), "octogent-api-test-"));
+    temporaryDirectories.push(workspaceCwd);
+    const promptsDir = mkdtempSync(join(tmpdir(), "octogent-api-prompts-"));
+    temporaryDirectories.push(promptsDir);
+    writeFileSync(
+      join(promptsDir, "tentacle-context-init.md"),
+      "You are working on the {{tentacleName}} section. For tool-list items, context, and docs, check {{tentacleContextPath}}.",
+      "utf8",
+    );
+    writeFileSync(
+      join(promptsDir, "presnap-iq-worker.md"),
+      "PRESNAP WORKER (should not appear)",
+      "utf8",
+    );
+    writeFileSync(
+      join(promptsDir, "explicit-template.md"),
+      "EXPLICIT template for {{tentacleName}}",
+      "utf8",
+    );
+
+    const baseUrl = await startServer({ workspaceCwd, promptsDir });
+
+    const createDeckResponse = await fetch(`${baseUrl}/api/deck/tentacles`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "engine",
+        description: "VLM engine work",
+        color: "#d4a017",
+        octopus: {},
+        defaultPromptTemplate: "presnap-iq-worker",
+      }),
+    });
+    expect(createDeckResponse.status).toBe(201);
+
+    const createResponse = await fetch(`${baseUrl}/api/terminals`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tentacleId: "engine",
+        workspaceMode: "shared",
+        promptTemplate: "explicit-template",
+        promptVariables: { tentacleName: "Engine" },
+      }),
+    });
+    expect(createResponse.status).toBe(201);
+    const createPayload = (await createResponse.json()) as { initialPrompt?: string };
+    expect(createPayload.initialPrompt).toBe("EXPLICIT template for Engine");
+  });
+
+  it("falls back to tentacle-context-init draft when defaultPromptTemplate names a missing template", async () => {
+    const workspaceCwd = mkdtempSync(join(tmpdir(), "octogent-api-test-"));
+    temporaryDirectories.push(workspaceCwd);
+    const promptsDir = mkdtempSync(join(tmpdir(), "octogent-api-prompts-"));
+    temporaryDirectories.push(promptsDir);
+    writeFileSync(
+      join(promptsDir, "tentacle-context-init.md"),
+      "You are working on the {{tentacleName}} section. For tool-list items, context, and docs, check {{tentacleContextPath}}.",
+      "utf8",
+    );
+    // No presnap-iq-worker template seeded.
+
+    const baseUrl = await startServer({ workspaceCwd, promptsDir });
+
+    const createDeckResponse = await fetch(`${baseUrl}/api/deck/tentacles`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "engine",
+        description: "VLM engine work",
+        color: "#d4a017",
+        octopus: {},
+        defaultPromptTemplate: "presnap-iq-worker",
+      }),
+    });
+    expect(createDeckResponse.status).toBe(201);
+
+    const createResponse = await fetch(`${baseUrl}/api/terminals`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ tentacleId: "engine", workspaceMode: "shared" }),
+    });
+    expect(createResponse.status).toBe(201);
+    const createPayload = (await createResponse.json()) as { initialPrompt?: string };
+    expect(createPayload.initialPrompt).toBeUndefined();
+
+    await waitForRegistryDocument<{
+      terminals: Array<{
+        terminalId: string;
+        initialPrompt?: string;
+        initialInputDraft?: string;
+      }>;
+    }>(workspaceCwd, (document) =>
+      document.terminals.some(
+        (terminal) =>
+          terminal.terminalId === "terminal-1" &&
+          terminal.initialPrompt === undefined &&
+          terminal.initialInputDraft ===
+            "You are working on the engine section. For tool-list items, context, and docs, check .octogent/tentacles/engine.",
+      ),
+    );
+
+    const snapshotsResponse = await fetch(`${baseUrl}/api/terminal-snapshots`, {
+      headers: { Accept: "application/json" },
+    });
+    await expect(snapshotsResponse.json()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ terminalId: "terminal-1", hasUserPrompt: false }),
+      ]),
+    );
+  });
+
   it("creates isolated worktree terminals with dedicated cwd", async () => {
     const workspaceCwd = mkdtempSync(join(tmpdir(), "octogent-api-test-"));
     temporaryDirectories.push(workspaceCwd);
