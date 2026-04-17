@@ -30,4 +30,5 @@ export type DeckTentacleSummary = {
   todoDone: number;
   todoItems: { text: string; done: boolean }[];
   suggestedSkills: string[];
+  defaultPromptTemplate: string | null;
 };

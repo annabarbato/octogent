@@ -42,6 +42,47 @@ const buildTentacleInitialPrompt = (
   });
 };
 
+// Auto-injected variables made available to every caller-selected prompt
+// template. Kept in one place so the explicit-request branch and the
+// tentacle-default branch stay aligned.
+const buildAutoInjectedPromptVariables = (
+  workspaceCwd: string,
+  projectStateDir: string,
+  userPromptsDir: string,
+  apiPort: string,
+  terminalName: string | undefined,
+  overrides: Record<string, string>,
+): Record<string, string> => {
+  const vars: Record<string, string> = { ...overrides };
+
+  if (!vars.terminalId && terminalName) {
+    vars.terminalId = terminalName;
+  }
+  if (!vars.apiPort) {
+    vars.apiPort = apiPort;
+  }
+  if (!vars.userPromptsDir) {
+    vars.userPromptsDir = userPromptsDir;
+  }
+  if (!vars.existingTerminals) {
+    const deckTentacles = readDeckTentacles(workspaceCwd, projectStateDir);
+    if (deckTentacles.length > 0) {
+      const listing = deckTentacles
+        .map(
+          (t) =>
+            `- **${t.displayName}** (\`${t.tentacleId}\`): ${t.description || "(no description)"}`,
+        )
+        .join("\n");
+      vars.existingTerminals = `## Existing Terminals\n\nThe following departments already exist:\n\n${listing}\n\nConsider these when proposing new departments — avoid duplicates and note any gaps.`;
+    } else {
+      vars.existingTerminals =
+        "## Existing Terminals\n\nNo department terminals exist yet. You are starting from scratch.";
+    }
+  }
+
+  return vars;
+};
+
 export const handleTerminalSnapshotsRoute: ApiRouteHandler = async (
   { request, response, requestUrl, corsOrigin },
   { runtime },
@@ -171,7 +212,7 @@ export const handleTerminalsCollectionRoute: ApiRouteHandler = async (
       bodyPayload.promptTemplate.trim().length > 0
     ) {
       const templateName = bodyPayload.promptTemplate.trim();
-      const templateVars: Record<string, string> =
+      const providedVars: Record<string, string> =
         bodyPayload.promptVariables != null &&
         typeof bodyPayload.promptVariables === "object" &&
         !Array.isArray(bodyPayload.promptVariables)
@@ -182,39 +223,14 @@ export const handleTerminalsCollectionRoute: ApiRouteHandler = async (
             )
           : {};
 
-      // Auto-inject terminalId variable so callers don't have to guess it.
-      // The runtime hasn't allocated the ID yet, so we use the tentacle name
-      // when provided (sandbox always passes its name).
-      if (!templateVars.terminalId && createTerminalInput.tentacleName) {
-        templateVars.terminalId = createTerminalInput.tentacleName;
-      }
-
-      // Auto-inject apiPort so prompt templates can reference the local API.
-      if (!templateVars.apiPort) {
-        templateVars.apiPort = getApiPort();
-      }
-
-      // Auto-inject userPromptsDir so prompt templates know where to save user prompts.
-      if (!templateVars.userPromptsDir) {
-        templateVars.userPromptsDir = userPromptsDir;
-      }
-
-      // Auto-inject existingTerminals summary so planner-style prompts have context.
-      if (!templateVars.existingTerminals) {
-        const deckTentacles = readDeckTentacles(workspaceCwd, projectStateDir);
-        if (deckTentacles.length > 0) {
-          const listing = deckTentacles
-            .map(
-              (t) =>
-                `- **${t.displayName}** (\`${t.tentacleId}\`): ${t.description || "(no description)"}`,
-            )
-            .join("\n");
-          templateVars.existingTerminals = `## Existing Terminals\n\nThe following departments already exist:\n\n${listing}\n\nConsider these when proposing new departments — avoid duplicates and note any gaps.`;
-        } else {
-          templateVars.existingTerminals =
-            "## Existing Terminals\n\nNo department terminals exist yet. You are starting from scratch.";
-        }
-      }
+      const templateVars = buildAutoInjectedPromptVariables(
+        workspaceCwd,
+        projectStateDir,
+        userPromptsDir,
+        getApiPort(),
+        createTerminalInput.tentacleName,
+        providedVars,
+      );
 
       const resolved = await resolvePrompt(promptsDir, templateName, templateVars);
       if (resolved !== undefined) {
@@ -228,15 +244,48 @@ export const handleTerminalsCollectionRoute: ApiRouteHandler = async (
       createTerminalInput.initialPrompt = bodyPayload.initialPrompt.trim();
     }
 
+    // If no explicit prompt was resolved and this terminal is attached to a
+    // tentacle, fall back to the tentacle's declared default template (when
+    // set), and then to the tentacle-context-init draft (legacy behavior).
     if (!createTerminalInput.initialPrompt && createTerminalInput.tentacleId) {
-      const defaultTentaclePrompt = await buildTentacleInitialPrompt(
-        promptsDir,
-        workspaceCwd,
-        projectStateDir,
-        createTerminalInput.tentacleId,
+      const tentacle = readDeckTentacles(workspaceCwd, projectStateDir).find(
+        (entry) => entry.tentacleId === createTerminalInput.tentacleId,
       );
-      if (defaultTentaclePrompt) {
-        createTerminalInput.initialInputDraft = defaultTentaclePrompt;
+
+      if (tentacle?.defaultPromptTemplate) {
+        const tentacleFolderPath = join(".octogent", "tentacles", createTerminalInput.tentacleId);
+        const templateVars = buildAutoInjectedPromptVariables(
+          workspaceCwd,
+          projectStateDir,
+          userPromptsDir,
+          getApiPort(),
+          createTerminalInput.tentacleName,
+          {
+            tentacleName: tentacle.displayName,
+            tentacleId: createTerminalInput.tentacleId,
+            tentacleContextPath: tentacleFolderPath,
+          },
+        );
+        const resolved = await resolvePrompt(
+          promptsDir,
+          tentacle.defaultPromptTemplate,
+          templateVars,
+        );
+        if (resolved !== undefined) {
+          createTerminalInput.initialPrompt = resolved;
+        }
+      }
+
+      if (!createTerminalInput.initialPrompt) {
+        const defaultTentaclePrompt = await buildTentacleInitialPrompt(
+          promptsDir,
+          workspaceCwd,
+          projectStateDir,
+          createTerminalInput.tentacleId,
+        );
+        if (defaultTentaclePrompt) {
+          createTerminalInput.initialInputDraft = defaultTentaclePrompt;
+        }
       }
     }
 

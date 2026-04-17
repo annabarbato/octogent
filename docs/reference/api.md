@@ -5,7 +5,7 @@ Octogent exposes a local HTTP and WebSocket API.
 ## Terminals
 
 - `GET /api/terminal-snapshots` - returns the current terminal list and snapshot state for the UI
-- `POST /api/terminals` - creates a new terminal session
+- `POST /api/terminals` - creates a new terminal session; prompt precedence is request `promptTemplate` or `initialPrompt` first, then the tentacle's `defaultPromptTemplate` if the terminal is attached to a tentacle, then the `tentacle-context-init` draft
 - `PATCH /api/terminals/:terminalId` - updates terminal metadata such as the display name
 - `DELETE /api/terminals/:terminalId` - removes a terminal and closes its active session
 - `WS /api/terminals/:terminalId/ws` - streams live terminal IO over WebSocket
@@ -23,7 +23,7 @@ Octogent exposes a local HTTP and WebSocket API.
 
 - `GET /api/deck/skills` - lists available Claude Code skills discovered from project-local `.claude/skills/<skill>/SKILL.md` entries
 - `GET /api/deck/tentacles` - lists tentacles with metadata, vault files, and todo progress
-- `POST /api/deck/tentacles` - creates a new tentacle
+- `POST /api/deck/tentacles` - creates a new tentacle; accepts an optional `defaultPromptTemplate` naming the prompt template spawned for terminals on this tentacle when the caller does not pass `promptTemplate`
 - `DELETE /api/deck/tentacles/:tentacleId` - deletes a tentacle and its stored files
 - `PATCH /api/deck/tentacles/:tentacleId/skills` - updates the tentacle's suggested Claude Code skills and rewrites the managed block in `CONTEXT.md`
 - `POST /api/deck/tentacles/:tentacleId/todo` - adds a todo item to `todo.md`
