@@ -2,7 +2,7 @@
 /.claude
 /.codex
 /context
-/.octogent
+/.octogent/*
 /node_modules
 /dist
 /coverage
@@ -11,4 +11,5 @@
 **/.vite/
 **/coverage/
 
-.octogent
+.octogent/*
+!/.octogent/prompts/
